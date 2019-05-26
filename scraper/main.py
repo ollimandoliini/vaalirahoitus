@@ -1,16 +1,18 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 from bs4 import BeautifulSoup
 import requests
 import pprint
+import json
 
-printer = pprint.PrettyPrinter()
 
 base_url = 'https://www.vaalirahoitusvalvonta.fi'
 frontpage = base_url + '/fi/index/vaalirahailmoituksia/ilmoituslistaus/EV2019.html'
 
 
 def get_electoral_district_urls():
-    r = requests.get(frontpage).content
-    soup = BeautifulSoup(r, features='html.parser')
+    html = requests.get(frontpage).content
+    soup = BeautifulSoup(html, features='html.parser')
 
     electoral_district_urls = [base_url + i['href']
                                for i in soup.find(
@@ -18,23 +20,40 @@ def get_electoral_district_urls():
     return electoral_district_urls
 
 
-def get_candidate_urls():
-    district_pages = get_electoral_district_urls()
-    candidate_urls = []
-    for page in district_pages:
-        r = requests.get(page).content
-        soup = BeautifulSoup(r, features='html.parser')
-
-        links = [base_url + tag['href'] for tag in soup.find_all(
-            'a') if tag.text.strip() == 'Ennakkoilmoitus']
-        candidate_urls.append(links)
-    return sum(candidate_urls, [])
+def get_candidates_by_district(district_url):
+    html = requests.get(district_url).content
+    tags = BeautifulSoup(html, features="html.parser").findAll('tr')
+    candidates = [row.find('td').text.replace(u'\xa0', u' ')
+                  for row in tags if row.find('td')]
+    return candidates
 
 
-url = 'https://www.vaalirahoitusvalvonta.fi/fi/index/vaalirahailmoituksia/ilmoituslistaus/EV2019/03/jH5PvZth9/E_EI_EV2019.html'
+def candidates_and_urls(district_url):
+    html = requests.get(district_url).content
+    soup = BeautifulSoup(html, features='html.parser')
+    print('---')
+    candidates = []
+    for row in soup.findAll('tr'):
+        name = row.find('td')
+        if name:
+            candidate = {}
+            candidate['Nimi'] = name.text.replace(u'\xa0', ' ')
+            link = row.find('a')
+            candidate['url'] = base_url + link['href'] if link else ''
+            candidates.append(candidate)
+
+    return candidates
+
+
+def get_all_candidates():
+    all_candidates = [candidates_and_urls(
+        i) for i in get_electoral_district_urls()]
+    flatten_list = [item for sublist in all_candidates for item in sublist]
+    return flatten_list
 
 
 def get_candidate_data(url):
+
     data = {}
     r = requests.get(url).content
     soup = BeautifulSoup(r, features='html.parser').find(
@@ -43,28 +62,40 @@ def get_candidate_data(url):
     info_table = soup.find(lambda x: 'A.' in x.text.strip()
                            ).findNext('div').findAll('td')
 
-    general_info = {}
-    general_info['name'] = info_table[0].text.strip()
-    general_info['profession'] = info_table[1].text.strip()
-    general_info['party'] = info_table[2].text.strip()
-    general_info['district'] = info_table[3].text.strip()
-    general_info['support group'] = info_table[5].text.strip()
-    data['general_info'] = general_info
+    print('Fetching ' + info_table[0].text.strip())
+    data['Arvo, ammatti tai toimi'] = info_table[1].text.strip()
+    data['Puolue/valitsijayhdistys'] = info_table[2].text.strip()
+    data['Vaalipiiri'] = info_table[3].text.strip()
+    data['Tukiryhmä'] = info_table[5].text.strip()
 
     summary_table = soup.find(lambda x: 'B.' in x.text.strip()).findNext('div')
-    funding_summary = {}
-
-    data['funding summary'] = funding_summary
 
     for row in summary_table.findAll('tr'):
-        th = row.find('th')
-        amount = th.findNext('td').text.strip().replace(
+        th_tag = row.find('th')
+        description = th_tag.text.strip()
+        amount = th_tag.findNext('td').text.strip().replace(
             ' ', '').replace(',', '.')
-
-        funding_summary[th.text.strip()] = float(
-            amount) if len(amount) > 0 else 0
+        try:
+            data[description] = float(amount) if len(amount) > 0 else 0
+        except ValueError:
+            print('Unknown value: ' + amount)
+            data[description] = 0
 
     return data
 
 
-printer.pprint(get_candidate_data(url)['funding summary'])
+if __name__ == "__main__":
+    all_candidates = get_all_candidates()
+    with_data = []
+
+    for count, candidate in enumerate(all_candidates):
+        print('Item', count)
+        if candidate['url']:
+            fetched_data = get_candidate_data(candidate['url'])
+            candidate = {**candidate, **fetched_data}
+            with_data.append(candidate)
+        else:
+            with_data.append(candidate)
+
+    with open('data.json', 'w') as outputfile:
+        json.dump(with_data, outputfile)

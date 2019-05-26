@@ -1,0 +1,15 @@
+# num = "moro"
+# try:
+#     float(num)
+# except ValueError:
+#     print('nope')
+
+# print('done')
+
+# 1718 eronen petri
+
+a = {'a': 'a'}
+b = {'b': 'b'}
+c = {**a, **b}
+
+print(c)

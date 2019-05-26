@@ -6,6 +6,10 @@ name = "pypi"
 [packages]
 "beautifulsoup4" = "*"
 requests = "*"
+pandas = "*"
+openpyxl = "*"
+ipykernel = "*"
+seaborn = "*"
 
 [dev-packages]
 
